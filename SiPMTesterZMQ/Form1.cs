@@ -32,11 +32,18 @@ namespace SiPMTesterZMQ
 
         private void CheckAndSendIVData()
         {
+            if (globalState.UnderMeasurement.SMUVoltage == null || globalState.UnderMeasurement.DMMVoltage == null ||
+                globalState.UnderMeasurement.SMUCurrent == null)
+            {
+                //probably one of the arrays data not received yet
+                return;
+            }
             if (globalState.UnderMeasurement.SMUVoltage.Count == globalState.UnderMeasurement.DMMVoltage.Count &&
                 globalState.UnderMeasurement.SMUCurrent.Count == globalState.UnderMeasurement.DMMVoltage.Count)
             {
                 globalState.AppendUnderTestToList();
                 pubSocket.PublishMessage($"[MEAS]IVMeasurementDone:{JsonConvert.SerializeObject(globalState.UnderMeasurement)}"); //send IV
+                Console.WriteLine($"IVMeasurementDone:{JsonConvert.SerializeObject(globalState.UnderMeasurement)}");
                 globalState.MeasurementState = MeasurementState.FinishedIV;
                 measurementStatus.Text = "IV done";
             }
@@ -49,7 +56,7 @@ namespace SiPMTesterZMQ
         //read dmm measurements here
         private void Measurement_FetchMultiPointCompleted(object sender, DmmMeasurementEventArgs<double[]> e)
         {
-            globalState.UnderMeasurement.DMMVoltage = new List<double>(e.UserState as double[]);
+            globalState.UnderMeasurement.DMMVoltage = new List<double>(e.Reading);
             CheckAndSendIVData();
 
 

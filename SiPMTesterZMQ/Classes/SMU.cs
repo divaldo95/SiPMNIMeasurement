@@ -183,6 +183,8 @@ namespace SiPMTesterZMQ.Classes
             {
                 return;
             }
+            Stop();
+            Init();
             /* Configure the Source mode to Sequence. */
             dcPowerSession.Source.Mode = DCPowerSourceMode.Sequence;
             dcPowerSession.Outputs[ChannelName].Measurement.Sense = DCPowerMeasurementSense.Remote;
@@ -197,7 +199,15 @@ namespace SiPMTesterZMQ.Classes
 
             dcPowerSession.Triggers.SourceTrigger.DigitalEdge.Configure(DCPowerDigitalEdgeSourceTriggerInputTerminal.PxiTriggerLine0, DCPowerTriggerEdge.Falling);
 
-            dcPowerSession.Outputs[ChannelName].Source.AdvancedSequencing.DeleteAdvancedSequence(AdvancedSequenceName);
+            try
+            {
+                dcPowerSession.Outputs[ChannelName].Source.AdvancedSequencing.DeleteAdvancedSequence(AdvancedSequenceName);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine(ex.Message);
+                //probably "The active advanced sequence does not exist"
+            }
             /* Specify the Advanced Sequence Attributes which can change per step. */
             DCPowerAdvancedSequenceProperty[] advancedSequenceProperties = {DCPowerAdvancedSequenceProperty.VoltageLevel,
                                                                             DCPowerAdvancedSequenceProperty.CurrentLimit,
@@ -271,7 +281,7 @@ namespace SiPMTesterZMQ.Classes
                     dcPowerSession.Events.SequenceEngineDoneEvent.WaitForEvent(timeout);
                     SequenceDoneEventArgs args = new SequenceDoneEventArgs();
                     args.Results = dcPowerSession.Measurement.Fetch(ChannelName, timeout, EventCount);
-
+                    Stop();
                     OnSequenceDoneEvent?.Invoke(this, args);
                     CurrentState = MeasurementState.Finished;
                 }
@@ -291,7 +301,6 @@ namespace SiPMTesterZMQ.Classes
                 }
                 */
             }
-            Stop();
         }
 
         void WaitForEventVoltageSetAndMeasurePolling(NIDCPower dcPowerSession, double vSet, CancellationToken cancellationToken)
