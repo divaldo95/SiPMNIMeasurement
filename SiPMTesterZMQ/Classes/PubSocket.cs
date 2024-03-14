@@ -12,6 +12,7 @@ namespace SiPMTesterZMQ.Classes
     public class PubSocket
     {
         public PublisherSocket pubSocket;
+        public bool Started = false;
 
         public PubSocket()
         {
@@ -29,6 +30,7 @@ namespace SiPMTesterZMQ.Classes
             pubSocket.Options.CurveServer = true;
             pubSocket.Options.CurveCertificate = pubServerPair;
             pubSocket.Bind("tcp://*:5557");
+            Started = true;
         }
 
         public void Stop()
@@ -37,12 +39,13 @@ namespace SiPMTesterZMQ.Classes
             {
                 pubSocket.Close();
                 pubSocket.Dispose();
+                Started = false;
             }
         }
 
         public void PublishMessage(string message)
         {
-            if (pubSocket != null)
+            if (pubSocket != null && Started)
             {
                 pubSocket.SendFrame(message);
             }

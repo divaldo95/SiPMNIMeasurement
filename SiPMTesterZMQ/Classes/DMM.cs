@@ -94,10 +94,15 @@ namespace SiPMTesterZMQ.Classes
                                                             //dmmSession.Measurement.ReadMultiPointAsync();
                                                             //dmmSession.Measurement.FetchMultiPoint(10);
             dmmSession.Trigger.Source = DmmTriggerSource.Immediate;
-            Trace.WriteLine(DeviceName + " MultiPoint mode initialized");
+            
+            dmmSession.Measurement.FetchMultiPointCompleted -= OnMultiPointEventFinished;
+            dmmSession.Measurement.FetchMultiPointCompleted -= Measurement_FetchMultiPointCompleted; //Handle event finish
+            dmmSession.Measurement.ReadMultiPointCompleted -= Measurement_ReadMultiPointCompleted;
+
             dmmSession.Measurement.FetchMultiPointCompleted += OnMultiPointEventFinished;
             dmmSession.Measurement.FetchMultiPointCompleted += Measurement_FetchMultiPointCompleted; //Handle event finish
             dmmSession.Measurement.ReadMultiPointCompleted += Measurement_ReadMultiPointCompleted;
+            Trace.WriteLine(DeviceName + " MultiPoint mode initialized");
         }
 
         private void Measurement_ReadMultiPointCompleted(object sender, DmmMeasurementEventArgs<double[]> e)
@@ -108,6 +113,7 @@ namespace SiPMTesterZMQ.Classes
         private void Measurement_FetchMultiPointCompleted(object sender, DmmMeasurementEventArgs<double[]> e)
         {
             CurrentState = MeasurementState.Finished;
+            Stop();
         }
 
         /*

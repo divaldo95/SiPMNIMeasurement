@@ -30,6 +30,30 @@ namespace SiPMTesterZMQ
         //Signal for response message ready
         private ManualResetEvent progressEvent = new ManualResetEvent(true);
 
+        private void ChangeGlobalMeasurementState(MeasurementState newState)
+        {
+            globalState.MeasurementState = newState;
+            pubSocket.PublishMessage(GetStatusResponseString());
+        }
+
+        private void SendAndSaveIVMeasurementData()
+        {
+            globalState.AppendUnderTestToList();
+            string toSend = $"[MEAS]IVMeasurementDone:{JsonConvert.SerializeObject(globalState.UnderMeasurement)}";
+            pubSocket.PublishMessage(toSend); //send IV
+            Console.WriteLine(toSend);
+            //AppendLogLine(toSend);
+        }
+
+        private void SendAndSaveDMMMeasurementData()
+        {
+            globalState.AppendDMMResistanceToList(); //save current
+            string toSend = $"[MEAS]DMMMeasurementDone:{JsonConvert.SerializeObject(globalState.DMMResistanceMeasurement)}";
+            pubSocket.PublishMessage(toSend); //send DMM
+            Console.WriteLine(toSend);
+            //AppendLogLine(toSend);
+        }
+
         private void CheckAndSendIVData()
         {
             if (globalState.UnderMeasurement.SMUVoltage == null || globalState.UnderMeasurement.DMMVoltage == null ||
@@ -41,10 +65,11 @@ namespace SiPMTesterZMQ
             if (globalState.UnderMeasurement.SMUVoltage.Count == globalState.UnderMeasurement.DMMVoltage.Count &&
                 globalState.UnderMeasurement.SMUCurrent.Count == globalState.UnderMeasurement.DMMVoltage.Count)
             {
-                globalState.AppendUnderTestToList();
-                pubSocket.PublishMessage($"[MEAS]IVMeasurementDone:{JsonConvert.SerializeObject(globalState.UnderMeasurement)}"); //send IV
-                Console.WriteLine($"IVMeasurementDone:{JsonConvert.SerializeObject(globalState.UnderMeasurement)}");
-                globalState.MeasurementState = MeasurementState.FinishedIV;
+                //got both measurements, stop the instruments
+                smu.Stop();
+                dmm.Stop();
+                SendAndSaveIVMeasurementData();
+                ChangeGlobalMeasurementState(MeasurementState.FinishedIV);
                 measurementStatus.Text = "IV done";
             }
             else if (smu.CurrentState != MeasurementState.Running && dmm.CurrentState != MeasurementState.Running)
@@ -58,8 +83,6 @@ namespace SiPMTesterZMQ
         {
             globalState.UnderMeasurement.DMMVoltage = new List<double>(e.Reading);
             CheckAndSendIVData();
-
-
         }
 
         //read smu measurements here
@@ -94,10 +117,9 @@ namespace SiPMTesterZMQ
                     globalState.DMMResistanceMeasurement.Resistance += globalState.DMMResistanceMeasurement.Voltages[i] / globalState.DMMResistanceMeasurement.Currents[i];
                 }
                 globalState.DMMResistanceMeasurement.Resistance = globalState.DMMResistanceMeasurement.Resistance / globalState.DMMResistanceMeasurement.Voltages.Count;
-                globalState.AppendDMMResistanceToList(); //save current
-                pubSocket.PublishMessage($"[MEAS]DMMMeasurementDone:{JsonConvert.SerializeObject(globalState.DMMResistanceMeasurement)}"); //send DMM
+                SendAndSaveDMMMeasurementData();
                 measurementStatus.Text = "DMM resistance done";
-                globalState.MeasurementState = MeasurementState.FinishedDMM;
+                ChangeGlobalMeasurementState(MeasurementState.FinishedDMM);
             }
         }
 
@@ -115,11 +137,32 @@ namespace SiPMTesterZMQ
             dmm.OnMultiPointEventFinished += Measurement_FetchMultiPointCompleted;
 
             smu.OnSequenceDoneEvent += OnSequenceDoneEvent;
+            smu.OnSequenceTimeoutEvent += OnSequenceTimeoutEvent;
 
             smu.OnVoltageSetDoneEvent += OnVoltageSetDoneEvent;
+            smu.OnVoltageSetTimeoutEvent += OnVoltageSetTimeoutEvent;
 
             globalState.MeasurementState = MeasurementState.NotRunning;
             
+        }
+
+        private void OnVoltageSetTimeoutEvent(object sender, VoltageSetTimeoutEventArgs e)
+        {
+            globalState.DMMResistanceMeasurement.ErrorHappened = true;
+            globalState.DMMResistanceMeasurement.ErrorMessage = "Voltage set timout";
+            SendAndSaveDMMMeasurementData();
+            measurementStatus.Text = "DMM resistance set voltage timeout";
+            ChangeGlobalMeasurementState(MeasurementState.Error);
+        }
+
+        private void OnSequenceTimeoutEvent(object sender, SequenceTimeoutEventArgs e)
+        {
+            globalState.UnderMeasurement.ErrorHappened = true;
+            globalState.UnderMeasurement.ErrorMessage = "Sequence timeout";
+            SendAndSaveIVMeasurementData();
+            measurementStatus.Text = "IV sequence timeout";
+            ChangeGlobalMeasurementState(MeasurementState.Error);
+
         }
 
         private MeasurementStartResponseModel StartIVMeasurement(NIIVStartModel startModel)
@@ -148,7 +191,7 @@ namespace SiPMTesterZMQ
                 globalState.UnderMeasurement.Identifier = startModel.Identifier;
                 MeasurementFunctions.IVMeasurement(startModel, dmm, smu);
                 measurementStatus.Text = "IV measurement";
-                globalState.MeasurementState = MeasurementState.Running;
+                ChangeGlobalMeasurementState(MeasurementState.Running);
             }
             else
             {
@@ -186,7 +229,7 @@ namespace SiPMTesterZMQ
                 globalState.IsIVMeasurement = false;
                 MeasurementFunctions.DMMResistanceMeasurement(globalState.CurrentDMMStartModel.DMMResistance.Voltage, dmm, smu);
                 measurementStatus.Text = "DMM resistance measurement";
-                globalState.MeasurementState = MeasurementState.Running;
+                ChangeGlobalMeasurementState(MeasurementState.Running);
             }
             else
             {
@@ -194,6 +237,13 @@ namespace SiPMTesterZMQ
                 responseModel.ErrorMessage = "Invalid iteration number";
             }
             return responseModel;
+        }
+
+        private string GetStatusResponseString()
+        {
+            StatusChangeResponseModel statusRespModel = new StatusChangeResponseModel();
+            statusRespModel.State = globalState.MeasurementState;
+            return "StatusChange:" + JsonConvert.SerializeObject(statusRespModel);
         }
 
         private string ProcessReceivedMessage(string message)
@@ -221,9 +271,10 @@ namespace SiPMTesterZMQ
 
             else if (sender == "GetState")
             {
-                StatusChangeResponseModel statusRespModel = new StatusChangeResponseModel();
-                statusRespModel.State = globalState.MeasurementState;
-                response = "StatusChange:" + JsonConvert.SerializeObject(statusRespModel);
+                //StatusChangeResponseModel statusRespModel = new StatusChangeResponseModel();
+                //statusRespModel.State = globalState.MeasurementState;
+                //response = "StatusChange:" + JsonConvert.SerializeObject(statusRespModel);
+                response = GetStatusResponseString();
             }
             else if (sender == "GetMeasurementData")
             {
@@ -291,48 +342,6 @@ namespace SiPMTesterZMQ
             }
             return response;
         }
-
-        /*
-        private StatusChangeResponseModel GetStatus()
-        {
-            StatusChangeResponseModel statusChangeResponseModel = new StatusChangeResponseModel();
-            statusChangeResponseModel.State = globalState.MeasurementState;
-            return statusChangeResponseModel;
-        }
-
-        
-        private string GetResponseMessage(string frame)
-        {
-            
-            string sender;
-            string error;
-            JObject obj;
-
-            if (!Parser.ParseMeasurementStatus(frame, out sender, out obj))
-            {
-                AppendLogLine($"Cannot parse received frame: {frame}");
-                return null;
-            }
-
-            string repMsg = $"{sender}:";
-            switch (sender)
-            {
-                case "Ping":
-                    repMsg += "Pong:{\"Status:\": 1}";
-                    break;
-                case "GetState":
-                    repMsg += JsonConvert.SerializeObject(GetStatus());
-                    break;
-                case "StartIVMeasurement":
-                    repMsg += JsonConvert.SerializeObject(StartMeasurement(frame));
-                    break;
-                default:
-                    repMsg += "{\"Error\": \"Unknown\"}";
-                    break;
-            }
-            return repMsg;
-        }
-        */
 
         private void setBtnStates(bool isRunning)
         {

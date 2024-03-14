@@ -281,9 +281,10 @@ namespace SiPMTesterZMQ.Classes
                     dcPowerSession.Events.SequenceEngineDoneEvent.WaitForEvent(timeout);
                     SequenceDoneEventArgs args = new SequenceDoneEventArgs();
                     args.Results = dcPowerSession.Measurement.Fetch(ChannelName, timeout, EventCount);
-                    Stop();
+                    //Stop(); //using this stops before dmm finishes
                     OnSequenceDoneEvent?.Invoke(this, args);
                     CurrentState = MeasurementState.Finished;
+                    break;
                 }
                 catch (Exception)
                 {
