@@ -43,13 +43,10 @@ namespace SiPMTesterZMQ.Classes
 
         public void Start()
         {
-            if (responseSocket != null)
+            if (responseSocket == null || responseSocket.IsDisposed)
             {
-                return;
+                responseSocket = new ResponseSocket("tcp://*:5555");
             }
-
-            responseSocket = new ResponseSocket("tcp://*:5555");
-
             var serverPair = KeyReader.ReadKeyFiles("RESPPrivate.key", "RESPPublic.key");
             responseSocket.Options.CurveServer = true;
             responseSocket.Options.CurveCertificate = serverPair;

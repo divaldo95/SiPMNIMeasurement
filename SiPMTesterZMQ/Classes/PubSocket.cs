@@ -11,7 +11,7 @@ namespace SiPMTesterZMQ.Classes
 {
     public class PubSocket
     {
-        public PublisherSocket pubSocket;
+        private PublisherSocket pubSocket;
         public bool Started = false;
 
         public PubSocket()
@@ -21,7 +21,7 @@ namespace SiPMTesterZMQ.Classes
 
         public void Start()
         {
-            if (pubSocket == null)
+            if (pubSocket == null || pubSocket.IsDisposed)
             {
                 pubSocket = new PublisherSocket();
             }

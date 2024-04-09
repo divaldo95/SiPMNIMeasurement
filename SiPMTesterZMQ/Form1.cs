@@ -443,6 +443,8 @@ namespace SiPMTesterZMQ
         {
             if (e.Cancelled == true)
             {
+                respSocket.Stop();
+                pubSocket.Stop();
                 AppendLogLine("ResponseWorker canceled!" + Environment.NewLine);
             }
             else if (e.Error != null)
@@ -451,6 +453,8 @@ namespace SiPMTesterZMQ
             }
             else
             {
+                respSocket.Stop();
+                pubSocket.Stop();
                 AppendLogLine("Done!");
             }
         }
