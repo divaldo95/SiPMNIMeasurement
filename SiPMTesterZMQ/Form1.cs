@@ -33,7 +33,7 @@ namespace SiPMTesterZMQ
         private void ChangeGlobalMeasurementState(MeasurementState newState)
         {
             globalState.MeasurementState = newState;
-            pubSocket.PublishMessage(GetStatusResponseString());
+            pubSocket.PublishMessage("[STATUS]" + GetStatusResponseString());
         }
 
         private void SendAndSaveIVMeasurementData()
@@ -123,12 +123,20 @@ namespace SiPMTesterZMQ
             }
         }
 
+        private void periodicUpdatesCallback(object sender, SubSocketPeriodicUpdateElapsed e)
+        {
+            string msg = "[STATUS]" + GetStatusResponseString(); //send current state periodically
+            pubSocket.PublishMessage(msg);
+        }
+
         public Form1()
         {
             InitializeComponent();
 
             respSocket = new RespSocket();
             pubSocket = new PubSocket();
+
+            pubSocket.OnPeriodicUpdateTimeElapsed += periodicUpdatesCallback;
 
             dmm.Init();
             smu.Init();
