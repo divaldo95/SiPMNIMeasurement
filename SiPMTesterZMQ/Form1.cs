@@ -5,6 +5,7 @@ using SiPMTesterInterface.Classes;
 using SiPMTesterInterface.Enums;
 using SiPMTesterInterface.Models;
 using SiPMTesterZMQ.Classes;
+using SiPMTesterZMQ.Helpers;
 using SiPMTesterZMQ.Models;
 using System;
 using System.Collections.Generic;
@@ -68,6 +69,7 @@ namespace SiPMTesterZMQ
                 //got both measurements, stop the instruments
                 smu.Stop();
                 dmm.Stop();
+                globalState.UnderMeasurement.EndTimestamp = TimestampHelper.GetCurrentTimestamp();
                 SendAndSaveIVMeasurementData();
                 ChangeGlobalMeasurementState(MeasurementState.FinishedIV);
                 measurementStatus.Text = "IV done";
@@ -194,9 +196,8 @@ namespace SiPMTesterZMQ
 
             if (startModel.Voltages.Count > 0)
             {
-                responseModel.Successful = true;
-                globalState.UnderMeasurement = new IVMeasurementResponseModel();
-                globalState.UnderMeasurement.Identifier = startModel.Identifier;
+                responseModel.Successful = true; //measurement started successfully
+                globalState.UnderMeasurement.StartTimestamp = TimestampHelper.GetCurrentTimestamp();
                 MeasurementFunctions.IVMeasurement(startModel, dmm, smu);
                 measurementStatus.Text = "IV measurement";
                 ChangeGlobalMeasurementState(MeasurementState.Running);

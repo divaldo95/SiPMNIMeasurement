@@ -114,6 +114,7 @@
       <DependentUpon>Form1.cs</DependentUpon>
     </Compile>
     <Compile Include="Helpers\KeyReader.cs" />
+    <Compile Include="Helpers\TimestampHelper.cs" />
     <Compile Include="Models\CurrentSiPMModel.cs" />
     <Compile Include="Models\DMMResistanceMeasurementResponseModel.cs" />
     <Compile Include="Models\DMMResistanceModel.cs" />
