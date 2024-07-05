@@ -73,6 +73,9 @@ namespace SiPMTesterZMQ
                 SendAndSaveIVMeasurementData();
                 ChangeGlobalMeasurementState(MeasurementState.FinishedIV);
                 measurementStatus.Text = "IV done";
+                Console.WriteLine("SMU V: " + string.Join(",", globalState.UnderMeasurement.SMUVoltage));
+                Console.WriteLine("SMU I: " + string.Join(",", globalState.UnderMeasurement.SMUCurrent));
+                Console.WriteLine("DMM V: " + string.Join(",", globalState.UnderMeasurement.DMMVoltage));
             }
             else if (smu.CurrentState != MeasurementState.Running && dmm.CurrentState != MeasurementState.Running)
             {
@@ -105,7 +108,8 @@ namespace SiPMTesterZMQ
             if (DMMMeasLeft > 0)
             {
                 Console.WriteLine($"DMM meas left: {DMMMeasLeft}");
-                MeasurementFunctions.DMMResistanceMeasurement(globalState.CurrentDMMStartModel.DMMResistance.Voltage, dmm, smu);
+                smu.MeasureSinglePoint(globalState.CurrentDMMStartModel.DMMResistance.Voltage);
+                Thread.Sleep(100);
                 Console.WriteLine($"Started new measurement");
                 DMMMeasLeft--;
             }
@@ -119,6 +123,7 @@ namespace SiPMTesterZMQ
                     globalState.DMMResistanceMeasurement.Resistance += globalState.DMMResistanceMeasurement.Voltages[i] / globalState.DMMResistanceMeasurement.Currents[i];
                 }
                 globalState.DMMResistanceMeasurement.Resistance = globalState.DMMResistanceMeasurement.Resistance / globalState.DMMResistanceMeasurement.Voltages.Count;
+                globalState.DMMResistanceMeasurement.EndTimestamp = TimestampHelper.GetCurrentTimestamp();
                 SendAndSaveDMMMeasurementData();
                 measurementStatus.Text = "DMM resistance done";
                 ChangeGlobalMeasurementState(MeasurementState.FinishedDMM);
@@ -167,6 +172,9 @@ namespace SiPMTesterZMQ
 
         private void OnSequenceTimeoutEvent(object sender, SequenceTimeoutEventArgs e)
         {
+            globalState.UnderMeasurement.SMUVoltage = new List<double>();
+            globalState.UnderMeasurement.SMUCurrent = new List<double>();
+            globalState.UnderMeasurement.DMMVoltage = new List<double>();
             globalState.UnderMeasurement.ErrorHappened = true;
             globalState.UnderMeasurement.ErrorMessage = "Sequence timeout";
             SendAndSaveIVMeasurementData();
@@ -224,6 +232,9 @@ namespace SiPMTesterZMQ
             globalState.DMMResistanceMeasurement.Voltages = new List<double>();
             globalState.DMMResistanceMeasurement.Currents = new List<double>();
             globalState.DMMResistanceMeasurement.Identifier = startModel.Identifier;
+            globalState.DMMResistanceMeasurement.StartTimestamp = TimestampHelper.GetCurrentTimestamp();
+
+
 
             //handle here measurement start and if it is successful or not
             responseModel.Identifier = startModel.Identifier;
@@ -237,6 +248,7 @@ namespace SiPMTesterZMQ
                 responseModel.Successful = true;
                 globalState.IsIVMeasurement = false;
                 MeasurementFunctions.DMMResistanceMeasurement(globalState.CurrentDMMStartModel.DMMResistance.Voltage, dmm, smu);
+                smu.MeasureSinglePoint(globalState.CurrentDMMStartModel.DMMResistance.Voltage);
                 measurementStatus.Text = "DMM resistance measurement";
                 ChangeGlobalMeasurementState(MeasurementState.Running);
             }
@@ -348,6 +360,10 @@ namespace SiPMTesterZMQ
                 {
                     response = "MeasurementStart:" + JsonConvert.SerializeObject(StartDMMMeasurement(NIDMMStart));
                 }
+            }
+            else if (sender == "StopMeasurement")
+            {
+                response = "StopMeasurement:" + "{\"Status\": 1}";
             }
             return response;
         }

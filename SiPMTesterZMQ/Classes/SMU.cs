@@ -143,6 +143,8 @@ namespace SiPMTesterZMQ.Classes
 
             dcPowerSession.Outputs[ChannelName].Source.Voltage.CurrentLimitAutorange = DCPowerSourceCurrentLimitAutorange.Off;
             dcPowerSession.Outputs[ChannelName].Source.Voltage.VoltageLevelAutorange = DCPowerSourceVoltageLevelAutorange.Off;
+
+            VoltageSetIsDone = false;
         }
 
         public void Init()
@@ -183,11 +185,11 @@ namespace SiPMTesterZMQ.Classes
             {
                 return;
             }
-            Stop();
-            Init();
+            //Stop();
+            //Init();
             /* Configure the Source mode to Sequence. */
             dcPowerSession.Source.Mode = DCPowerSourceMode.Sequence;
-            dcPowerSession.Outputs[ChannelName].Measurement.Sense = DCPowerMeasurementSense.Remote;
+            dcPowerSession.Outputs[ChannelName].Measurement.Sense = DCPowerMeasurementSense.Local;
             dcPowerSession.Outputs[ChannelName].Source.Voltage.VoltageLevelRange = 200.0;
 
             //Set limits every time
@@ -227,6 +229,7 @@ namespace SiPMTesterZMQ.Classes
                 dcPowerSession.Outputs[ChannelName].Source.Voltage.CurrentLimitRange = CurrentLimitRange; //set the same current limit for all
             }
             EventCount = voltageList.Count;
+            Trace.WriteLine("SMU multipoint measurement initialized");
         }
 
         public void Close()
@@ -252,20 +255,27 @@ namespace SiPMTesterZMQ.Classes
                 CurrentState = MeasurementState.Running;
                 Task pollingTask = Task.Run(() => WaitForEventPolling(dcPowerSession, cancellationTokenSource.Token));
             }
-            
         }
+
+        public void MeasureSinglePoint(double v = 30.0)
+        {
+            Task pollingTask = Task.Run(() => WaitForEventVoltageSetAndMeasurePolling(dcPowerSession, v, cancellationTokenSource.Token));
+        }
+
         public void Stop()
         {
             if (dcPowerSession != null)
             {
+                CurrentState = MeasurementState.NotRunning;
+                VoltageSetIsDone = false;
                 cancellationTokenSource.Cancel();
                 dcPowerSession.Control.Abort();
                 dcPowerSession.Utility.Reset();
                 dcPowerSession = null;
                 GC.Collect();
-                Init();
-                Thread.Sleep(200);
-                InitCommonProperties(); //init common properties
+                //Init();
+                //Thread.Sleep(200);
+                //InitCommonProperties(); //init common properties
             }
         }
 
@@ -313,7 +323,15 @@ namespace SiPMTesterZMQ.Classes
             {
                 try
                 {
-                    dcPowerSession.Events.SourceCompleteEvent.WaitForEvent(timeout);
+                    if (!VoltageSetIsDone)
+                    {
+                        dcPowerSession.Events.SourceCompleteEvent.WaitForEvent(timeout);
+                        VoltageSetIsDone = true;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Voltage set is already done");
+                    }
 
                     VoltageSetDoneEventArgs args = new VoltageSetDoneEventArgs();
                     args.Voltage = vSet;
@@ -323,7 +341,7 @@ namespace SiPMTesterZMQ.Classes
                     args.Measurement = dcPowerSession.Measurement.Measure(ChannelName);
                     args.InCompliance = dcPowerSession.Measurement.QueryInCompliance(ChannelName);
 
-                    CurrentState = MeasurementState.Finished;
+                    //CurrentState = MeasurementState.Finished;
                     //OnVoltageSetDoneEvent?.Invoke(this, args);
                     RaiseVoltageSetDoneEvent(args);
                     break;
@@ -361,7 +379,6 @@ namespace SiPMTesterZMQ.Classes
             try
             {
                 Console.WriteLine("SMU set voltage called");
-                Stop();
                 cancellationTokenSource.Dispose();
                 cancellationTokenSource = new CancellationTokenSource();
 
@@ -381,8 +398,6 @@ namespace SiPMTesterZMQ.Classes
                 Console.WriteLine("SMU voltage set initiated");
 
                 CurrentState = MeasurementState.Running;
-                Task pollingTask = Task.Run(() => WaitForEventVoltageSetAndMeasurePolling(dcPowerSession, v, cancellationTokenSource.Token));
-
             }
             catch (Exception e)
             {
@@ -401,13 +416,15 @@ namespace SiPMTesterZMQ.Classes
         //Private variables
         private NIDCPower dcPowerSession = null;
 
+        private bool VoltageSetIsDone = false;
+
         //private IVSettings ivSettings = new IVSettings();
         public int ApertureSequenceSize { get; set; } = 3;
 
         public string AdvancedSequenceName { get; set; } = "MySeq";
         public string ChannelName { get; set; } = "0";
         public PrecisionTimeSpan SourceDelay { get; set; } = new PrecisionTimeSpan(0.1); //in s
-        public double ApertureTime { get; set; } = 0.02; //in s
+        public double ApertureTime { get; set; } = 0.1; //in s
         public int PowerlineFrequency { get; set; } = 50; //Hz
         public int VoltageLevelRange { get; set; } = 200; //V
         public double VoltageLevel { get; set; } = 30.0; //V

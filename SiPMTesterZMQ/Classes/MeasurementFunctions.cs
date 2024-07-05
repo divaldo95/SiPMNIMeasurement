@@ -13,6 +13,7 @@ namespace SiPMTesterZMQ.Classes
         public static void DMMResistanceMeasurement(double voltage, DMM dmm, SMU smu)
         {
             dmm.Init(); //Set everything, but do not start measurement
+            smu.Init();
             smu.SetVoltage(voltage); //It will invoke the callback function with the measured values
         }
 
