@@ -9,6 +9,7 @@ namespace SiPMTesterInterface.Enums
         FinishedIV,
         FinishedDMM,
         FinishedSPS,
+        FinishedVoltageAndCurrent,
         Error,
         Unknown
     }

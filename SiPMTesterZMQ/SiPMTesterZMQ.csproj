@@ -103,6 +103,7 @@
     <Compile Include="Classes\RespSocket.cs" />
     <Compile Include="Classes\Scheduler.cs" />
     <Compile Include="Classes\SMU.cs" />
+    <Compile Include="Enums\VoltageAndCurrentMeasurementTypes.cs" />
     <Compile Include="Enums\ConnectionState.cs" />
     <Compile Include="Enums\InputResistanceValues.cs" />
     <Compile Include="Enums\MeasurementState.cs" />
@@ -116,6 +117,8 @@
     <Compile Include="Helpers\KeyReader.cs" />
     <Compile Include="Helpers\TimestampHelper.cs" />
     <Compile Include="Models\CurrentSiPMModel.cs" />
+    <Compile Include="Models\SMUVoltageModel.cs" />
+    <Compile Include="Models\VoltageAndCurrentMeasurementResponseModel.cs" />
     <Compile Include="Models\DMMResistanceMeasurementResponseModel.cs" />
     <Compile Include="Models\DMMResistanceModel.cs" />
     <Compile Include="Models\ErrorResponse.cs" />
@@ -127,6 +130,7 @@
     <Compile Include="Models\IVSettings.cs" />
     <Compile Include="Models\MeasurementStartModel.cs" />
     <Compile Include="Models\MeasurementStartResponseModel.cs" />
+    <Compile Include="Models\NIVoltageAndCurrentStartModel.cs" />
     <Compile Include="Models\NIDMMStartModel.cs" />
     <Compile Include="Models\NIIVStartModel.cs" />
     <Compile Include="Models\SPSModel.cs" />

@@ -47,13 +47,10 @@ namespace SiPMTesterInterface.Enums
     //[JsonConverter(typeof(StringEnumConverter))]
     public enum MeasurementType
 	{
-        //[EnumMember(Value = "IVMeasurement")]
         IVMeasurement = 0,
-        //[EnumMember(Value = "SPSMeasurement")]
         SPSMeasurement = 1,
-        //[EnumMember(Value = "DMMMeasurement")]
         DMMResistanceMeasurement = 2,
-        //[EnumMember(Value = "Unknown")]
+        VoltageAndCurrentMeasurement = 3,
         Unknown = 999
     }
 }

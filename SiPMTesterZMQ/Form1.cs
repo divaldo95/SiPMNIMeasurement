@@ -10,8 +10,10 @@ using SiPMTesterZMQ.Models;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 namespace SiPMTesterZMQ
@@ -26,7 +28,12 @@ namespace SiPMTesterZMQ
 
         private int DMMMeasLeft = 0;
 
+        private int VoltageAndCurrentFirstMeasLeft = 0;
+        private int VoltageAndCurrentSecondMeasLeft = 0;
+
         private GlobalNIStateModel globalState = new GlobalNIStateModel();
+
+        private bool startNewMeasurement = false;
 
         //Signal for response message ready
         private ManualResetEvent progressEvent = new ManualResetEvent(true);
@@ -37,12 +44,23 @@ namespace SiPMTesterZMQ
             pubSocket.PublishMessage("[STATUS]" + GetStatusResponseString());
         }
 
+        private void SendAndSaveVoltageAndCurrentMeasurementData()
+        {
+            globalState.AppendVoltageAndCurrentMeasurementToList();
+            string toSend = $"[MEAS]VoltageAndCurrentMeasurementDone:{JsonConvert.SerializeObject(globalState.VoltageAndCurrentMeasurement)}";
+            pubSocket.PublishMessage(toSend); //send VI
+            Console.WriteLine(toSend);
+            globalState.MeasurementType = MeasurementType.Unknown;
+            //AppendLogLine(toSend);
+        }
+
         private void SendAndSaveIVMeasurementData()
         {
             globalState.AppendUnderTestToList();
             string toSend = $"[MEAS]IVMeasurementDone:{JsonConvert.SerializeObject(globalState.UnderMeasurement)}";
             pubSocket.PublishMessage(toSend); //send IV
             Console.WriteLine(toSend);
+            globalState.MeasurementType = MeasurementType.Unknown;
             //AppendLogLine(toSend);
         }
 
@@ -52,6 +70,7 @@ namespace SiPMTesterZMQ
             string toSend = $"[MEAS]DMMMeasurementDone:{JsonConvert.SerializeObject(globalState.DMMResistanceMeasurement)}";
             pubSocket.PublishMessage(toSend); //send DMM
             Console.WriteLine(toSend);
+            globalState.MeasurementType = MeasurementType.Unknown;
             //AppendLogLine(toSend);
         }
 
@@ -72,6 +91,7 @@ namespace SiPMTesterZMQ
                 globalState.UnderMeasurement.EndTimestamp = TimestampHelper.GetCurrentTimestamp();
                 SendAndSaveIVMeasurementData();
                 ChangeGlobalMeasurementState(MeasurementState.FinishedIV);
+                globalState.MeasurementType = MeasurementType.Unknown;
                 measurementStatus.Text = "IV done";
                 Console.WriteLine("SMU V: " + string.Join(",", globalState.UnderMeasurement.SMUVoltage));
                 Console.WriteLine("SMU I: " + string.Join(",", globalState.UnderMeasurement.SMUCurrent));
@@ -80,6 +100,8 @@ namespace SiPMTesterZMQ
             else if (smu.CurrentState != MeasurementState.Running && dmm.CurrentState != MeasurementState.Running)
             {
                 //error happened because both are finished but data is not matching
+                Trace.WriteLine("SMU and DMM are both finished, but data is not matching");
+
             }
         }
 
@@ -99,35 +121,123 @@ namespace SiPMTesterZMQ
             CheckAndSendIVData();
         }
 
-        private void OnVoltageSetDoneEvent(object sender, VoltageSetDoneEventArgs e)
+        private void ProcessVoltageSetDoneEvent(object sender, VoltageSetDoneEventArgs e)
         {
             //globalState.DMMResistanceMeasurement.Resistance += e.Measurement.VoltageMeasurements[0] / e.Measurement.CurrentMeasurements[0];
             Console.WriteLine("VoltageSetDoneEvent called");
-            globalState.DMMResistanceMeasurement.Voltages.Add(e.Measurement.VoltageMeasurements[0]);
-            globalState.DMMResistanceMeasurement.Currents.Add(e.Measurement.CurrentMeasurements[0]);
-            if (DMMMeasLeft > 0)
+            if (globalState.MeasurementType == MeasurementType.DMMResistanceMeasurement)
             {
-                Console.WriteLine($"DMM meas left: {DMMMeasLeft}");
-                smu.MeasureSinglePoint(globalState.CurrentDMMStartModel.DMMResistance.Voltage);
-                Thread.Sleep(100);
-                Console.WriteLine($"Started new measurement");
-                DMMMeasLeft--;
-            }
-            else
-            {
-                Console.WriteLine($"DMM meas left: {DMMMeasLeft}. Measurement finished");
-                smu.Stop();
-                dmm.Stop();
-                for (int i = 0; i < globalState.DMMResistanceMeasurement.Voltages.Count; i++)
+                globalState.DMMResistanceMeasurement.Voltages.Add(e.Measurement.VoltageMeasurements[0]);
+                globalState.DMMResistanceMeasurement.Currents.Add(e.Measurement.CurrentMeasurements[0]);
+                if (DMMMeasLeft > 0)
                 {
-                    globalState.DMMResistanceMeasurement.Resistance += globalState.DMMResistanceMeasurement.Voltages[i] / globalState.DMMResistanceMeasurement.Currents[i];
+                    Console.WriteLine($"DMM meas left: {DMMMeasLeft}");
+                    smu.MeasureSinglePoint(globalState.CurrentDMMStartModel.DMMResistance.Voltage);
+                    Thread.Sleep(100);
+                    Console.WriteLine($"Started new measurement");
+                    DMMMeasLeft--;
                 }
-                globalState.DMMResistanceMeasurement.Resistance = globalState.DMMResistanceMeasurement.Resistance / globalState.DMMResistanceMeasurement.Voltages.Count;
-                globalState.DMMResistanceMeasurement.EndTimestamp = TimestampHelper.GetCurrentTimestamp();
-                SendAndSaveDMMMeasurementData();
-                measurementStatus.Text = "DMM resistance done";
-                ChangeGlobalMeasurementState(MeasurementState.FinishedDMM);
+                else
+                {
+                    Console.WriteLine($"DMM meas left: {DMMMeasLeft}. Measurement finished");
+                    smu.Stop();
+                    dmm.Stop();
+                    for (int i = 0; i < globalState.DMMResistanceMeasurement.Voltages.Count; i++)
+                    {
+                        globalState.DMMResistanceMeasurement.Resistance += globalState.DMMResistanceMeasurement.Voltages[i] / globalState.DMMResistanceMeasurement.Currents[i];
+                    }
+                    globalState.DMMResistanceMeasurement.Resistance = globalState.DMMResistanceMeasurement.Resistance / globalState.DMMResistanceMeasurement.Voltages.Count;
+                    globalState.DMMResistanceMeasurement.EndTimestamp = TimestampHelper.GetCurrentTimestamp();
+                    SendAndSaveDMMMeasurementData();
+                    measurementStatus.Text = "DMM resistance done";
+                    ChangeGlobalMeasurementState(MeasurementState.FinishedDMM);
+                    globalState.MeasurementType = MeasurementType.Unknown;
+                }
             }
+            else if (globalState.MeasurementType == MeasurementType.VoltageAndCurrentMeasurement)
+            {
+
+                Console.WriteLine($"Voltage and Current meas left: {VoltageAndCurrentFirstMeasLeft} | {VoltageAndCurrentSecondMeasLeft}");
+                if (VoltageAndCurrentFirstMeasLeft > 0) //decrement on first start too | if it is zero, go to second and decrement
+                {
+                    globalState.VoltageAndCurrentMeasurement.FirstIterationVoltages.Add(e.Measurement.VoltageMeasurements[0]);
+                    globalState.VoltageAndCurrentMeasurement.FirstIterationCurrents.Add(e.Measurement.CurrentMeasurements[0]);
+                    //Thread.Sleep(200);
+                    smu.MeasureSinglePoint(globalState.CurrentVoltageAndCurrentStartModel.FirstIteration.Voltage);
+
+                    Console.WriteLine($"Started new first iteration's voltage and current measurement");
+                    VoltageAndCurrentFirstMeasLeft--;
+                }
+                else if (VoltageAndCurrentFirstMeasLeft == 0) //set new voltage for second
+                {
+                    smu.Stop();
+                    if (globalState.VoltageAndCurrentMeasurement.StartModel.MeasurementType == Enums.VoltageAndCurrentMeasurementTypes.ForwardResistance)
+                    {
+                        //Thread.Sleep(1000);
+                    }
+                    MeasurementFunctions.VoltageAndCurrentMeasurement(globalState.CurrentVoltageAndCurrentStartModel, smu, false); //start second iteration
+                    smu.MeasureSinglePoint(globalState.CurrentVoltageAndCurrentStartModel.SecondIteration.Voltage);
+                    VoltageAndCurrentFirstMeasLeft--;
+                    //VoltageAndCurrentSecondMeasLeft--; //it is started now, decrement
+                }
+                else if (VoltageAndCurrentSecondMeasLeft > 0)
+                {
+                    globalState.VoltageAndCurrentMeasurement.SecondIterationVoltages.Add(e.Measurement.VoltageMeasurements[0]);
+                    globalState.VoltageAndCurrentMeasurement.SecondIterationCurrents.Add(e.Measurement.CurrentMeasurements[0]);
+                    //Thread.Sleep(200);
+                    smu.MeasureSinglePoint(globalState.CurrentVoltageAndCurrentStartModel.SecondIteration.Voltage);
+                    Console.WriteLine($"Started new second iteration's voltage and current measurement");
+                    VoltageAndCurrentSecondMeasLeft--;
+                }
+                else
+                {
+                    Console.WriteLine($"Voltage and current measurement finished");
+                    smu.SetVoltage(0.0);
+
+                    for (int i = 0; i < globalState.VoltageAndCurrentMeasurement.FirstIterationVoltages.Count; i++)
+                    {
+                        globalState.VoltageAndCurrentMeasurement.FirstIterationVoltageAverage += globalState.VoltageAndCurrentMeasurement.FirstIterationVoltages[i];
+                    }
+
+                    for (int i = 0; i < globalState.VoltageAndCurrentMeasurement.FirstIterationCurrents.Count; i++)
+                    {
+                        globalState.VoltageAndCurrentMeasurement.FirstIterationCurrentAverage += globalState.VoltageAndCurrentMeasurement.FirstIterationCurrents[i];
+                    }
+
+                    for (int i = 0; i < globalState.VoltageAndCurrentMeasurement.SecondIterationVoltages.Count; i++)
+                    {
+                        globalState.VoltageAndCurrentMeasurement.SecondIterationVoltageAverage += globalState.VoltageAndCurrentMeasurement.SecondIterationVoltages[i];
+                    }
+
+                    for (int i = 0; i < globalState.VoltageAndCurrentMeasurement.SecondIterationCurrents.Count; i++)
+                    {
+                        globalState.VoltageAndCurrentMeasurement.SecondIterationCurrentAverage += globalState.VoltageAndCurrentMeasurement.SecondIterationCurrents[i];
+                    }
+                    globalState.VoltageAndCurrentMeasurement.FirstIterationVoltageAverage = globalState.VoltageAndCurrentMeasurement.FirstIterationVoltageAverage / globalState.VoltageAndCurrentMeasurement.FirstIterationVoltages.Count;
+                    globalState.VoltageAndCurrentMeasurement.FirstIterationCurrentAverage = globalState.VoltageAndCurrentMeasurement.FirstIterationCurrentAverage / globalState.VoltageAndCurrentMeasurement.FirstIterationCurrents.Count;
+
+                    globalState.VoltageAndCurrentMeasurement.SecondIterationVoltageAverage = globalState.VoltageAndCurrentMeasurement.SecondIterationVoltageAverage / globalState.VoltageAndCurrentMeasurement.SecondIterationVoltages.Count;
+                    globalState.VoltageAndCurrentMeasurement.SecondIterationCurrentAverage = globalState.VoltageAndCurrentMeasurement.SecondIterationCurrentAverage / globalState.VoltageAndCurrentMeasurement.SecondIterationCurrents.Count;
+
+                    globalState.VoltageAndCurrentMeasurement.EndTimestamp = TimestampHelper.GetCurrentTimestamp();
+                    SendAndSaveVoltageAndCurrentMeasurementData();
+                    measurementStatus.Text = "Voltage And Current measurement done";
+                    Thread.Sleep(100);
+                    smu.Stop();
+                    if (globalState.VoltageAndCurrentMeasurement.StartModel.MeasurementType == Enums.VoltageAndCurrentMeasurementTypes.ForwardResistance)
+                    {
+                        Thread.Sleep(3000);
+                    }
+                    ChangeGlobalMeasurementState(MeasurementState.FinishedVoltageAndCurrent);
+                    globalState.MeasurementType = MeasurementType.Unknown;
+                }
+            }
+        }
+
+        private void OnVoltageSetDoneEvent(object sender, VoltageSetDoneEventArgs e)
+        {
+            ProcessVoltageSetDoneEvent(sender, e);
+            //Task pollingTask = Task.Run(() => ProcessVoltageSetDoneEvent(sender, e));
         }
 
         private void periodicUpdatesCallback(object sender, SubSocketPeriodicUpdateElapsed e)
@@ -163,10 +273,21 @@ namespace SiPMTesterZMQ
 
         private void OnVoltageSetTimeoutEvent(object sender, VoltageSetTimeoutEventArgs e)
         {
-            globalState.DMMResistanceMeasurement.ErrorHappened = true;
-            globalState.DMMResistanceMeasurement.ErrorMessage = "Voltage set timout";
-            SendAndSaveDMMMeasurementData();
-            measurementStatus.Text = "DMM resistance set voltage timeout";
+            Trace.WriteLine($"Voltage set timeout: {globalState.MeasurementType}");
+            if (globalState.MeasurementType == MeasurementType.DMMResistanceMeasurement)
+            {
+                globalState.DMMResistanceMeasurement.ErrorHappened = true;
+                globalState.DMMResistanceMeasurement.ErrorMessage = "Voltage set timout";
+                SendAndSaveDMMMeasurementData();
+                measurementStatus.Text = "DMM resistance set voltage timeout";
+            }
+            else if (globalState.MeasurementType == MeasurementType.VoltageAndCurrentMeasurement)
+            {
+                globalState.VoltageAndCurrentMeasurement.ErrorHappened = true;
+                globalState.VoltageAndCurrentMeasurement.ErrorMessage = "Voltage set timout";
+                SendAndSaveVoltageAndCurrentMeasurementData();
+                measurementStatus.Text = "VI set voltage timeout";
+            }
             ChangeGlobalMeasurementState(MeasurementState.Error);
         }
 
@@ -247,6 +368,7 @@ namespace SiPMTesterZMQ
                 //Thread.Sleep(1000);
                 responseModel.Successful = true;
                 globalState.IsIVMeasurement = false;
+                globalState.MeasurementType = MeasurementType.DMMResistanceMeasurement;
                 MeasurementFunctions.DMMResistanceMeasurement(globalState.CurrentDMMStartModel.DMMResistance.Voltage, dmm, smu);
                 smu.MeasureSinglePoint(globalState.CurrentDMMStartModel.DMMResistance.Voltage);
                 measurementStatus.Text = "DMM resistance measurement";
@@ -259,6 +381,52 @@ namespace SiPMTesterZMQ
             }
             return responseModel;
         }
+
+        private MeasurementStartResponseModel StartVoltageAndCurrentMeasurement(NIVoltageAndCurrentStartModel startModel)
+        {
+            MeasurementStartResponseModel responseModel = new MeasurementStartResponseModel();
+
+            if (globalState.MeasurementState == MeasurementState.Running)
+            {
+                responseModel.Successful = false;
+                responseModel.ErrorMessage = "Measurement already running";
+            }
+
+            globalState.VoltageAndCurrentMeasurement = new VoltageAndCurrentMeasurementResponseModel();
+            globalState.VoltageAndCurrentMeasurement.StartModel = startModel;
+            globalState.VoltageAndCurrentMeasurement.FirstIterationVoltages = new List<double>();
+            globalState.VoltageAndCurrentMeasurement.FirstIterationCurrents = new List<double>();
+            globalState.VoltageAndCurrentMeasurement.SecondIterationVoltages = new List<double>();
+            globalState.VoltageAndCurrentMeasurement.SecondIterationCurrents = new List<double>();
+            globalState.VoltageAndCurrentMeasurement.Identifier = startModel.Identifier;
+            globalState.VoltageAndCurrentMeasurement.StartTimestamp = TimestampHelper.GetCurrentTimestamp();
+
+            //handle here measurement start and if it is successful or not
+            responseModel.Identifier = startModel.Identifier;
+
+            globalState.CurrentVoltageAndCurrentStartModel = startModel;
+
+            VoltageAndCurrentFirstMeasLeft = startModel.FirstIteration.Iterations;
+            VoltageAndCurrentSecondMeasLeft = startModel.SecondIteration.Iterations;
+            if (VoltageAndCurrentFirstMeasLeft > 0 && VoltageAndCurrentSecondMeasLeft > 0)
+            {
+                //Thread.Sleep(1000);
+                responseModel.Successful = true;
+                //VoltageAndCurrentFirstMeasLeft--;
+                measurementStatus.Text = "Voltage and Current first iteration measurement";
+                ChangeGlobalMeasurementState(MeasurementState.Running);
+                globalState.MeasurementType = MeasurementType.VoltageAndCurrentMeasurement;
+                startNewMeasurement = true;
+            }
+            else
+            {
+                responseModel.Successful = false;
+                responseModel.ErrorMessage = "Invalid iteration number";
+                globalState.MeasurementType = MeasurementType.Unknown;
+            }
+            return responseModel;
+        }
+
 
         private string GetStatusResponseString()
         {
@@ -302,6 +470,7 @@ namespace SiPMTesterZMQ
                 MeasurementIdentifier identifier;
                 DMMResistanceMeasurementResponseModel dmmResp;
                 IVMeasurementResponseModel ivResp;
+                VoltageAndCurrentMeasurementResponseModel viResp;
                 if (!Parser.JObject2JSON(obj, out identifier, out error))
                 {
                     ErrorResponse errorResponse = new ErrorResponse();
@@ -318,6 +487,11 @@ namespace SiPMTesterZMQ
                 else if (globalState.GetIVMeasByIdentifier(identifier, out ivResp))
                 {
                     response = "IVMeasurementResult:" + JsonConvert.SerializeObject(ivResp);
+
+                }
+                else if (globalState.GetVoltageAndCurrentMeasByIdentifier(identifier, out viResp))
+                {
+                    response = "VIMeasurementResult:" + JsonConvert.SerializeObject(viResp);
 
                 }
                 else
@@ -359,6 +533,22 @@ namespace SiPMTesterZMQ
                 else
                 {
                     response = "MeasurementStart:" + JsonConvert.SerializeObject(StartDMMMeasurement(NIDMMStart));
+                }
+            }
+            else if (sender == "StartVoltageAndCurrentMeasurement")
+            {
+                NIVoltageAndCurrentStartModel NIVIStart;
+                if (!Parser.JObject2JSON(obj, out NIVIStart, out error))
+                {
+                    ErrorResponse errorResponse = new ErrorResponse();
+                    errorResponse.Sender = "JObject2JSON";
+                    errorResponse.Message = message;
+                    AppendLogLine($"Failed to parse MeasurementStart event ({error})");
+                    response = "Error:" + JsonConvert.SerializeObject(errorResponse);
+                }
+                else
+                {
+                    response = "MeasurementStart:" + JsonConvert.SerializeObject(StartVoltageAndCurrentMeasurement(NIVIStart));
                 }
             }
             else if (sender == "StopMeasurement")
@@ -437,6 +627,13 @@ namespace SiPMTesterZMQ
                 AppendLogLine(msg + Environment.NewLine);
                 string responseMessage = ProcessReceivedMessage(msg);
                 respSocket.SendFrame(responseMessage);
+
+                if (startNewMeasurement) //flag for VIMeasurement
+                {
+                    MeasurementFunctions.VoltageAndCurrentMeasurement(globalState.CurrentVoltageAndCurrentStartModel, smu, true);
+                    smu.MeasureSinglePoint(globalState.CurrentVoltageAndCurrentStartModel.FirstIteration.Voltage);
+                    startNewMeasurement = false;
+                }
             }
 
             else if (e.ProgressPercentage == 1)

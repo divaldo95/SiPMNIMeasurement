@@ -317,7 +317,7 @@ namespace SiPMTesterZMQ.Classes
         void WaitForEventVoltageSetAndMeasurePolling(NIDCPower dcPowerSession, double vSet, CancellationToken cancellationToken)
         {
 
-            PrecisionTimeSpan timeout = new PrecisionTimeSpan(10.0);
+            PrecisionTimeSpan timeout = new PrecisionTimeSpan(20.0);
             // Continuously poll WaitForEvent function
             while (!cancellationToken.IsCancellationRequested)
             {
@@ -346,11 +346,14 @@ namespace SiPMTesterZMQ.Classes
                     RaiseVoltageSetDoneEvent(args);
                     break;
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
+                    Trace.WriteLine($"Error while waiting for voltage ({vSet}) to be set: {ex.Message}");
+                    Trace.WriteLine(ex.StackTrace);
                     OnVoltageSetTimeoutEvent?.Invoke(this, new VoltageSetTimeoutEventArgs());
                     cancellationTokenSource.Cancel(); //stop the measurement
                     CurrentState = MeasurementState.Error;
+                    Stop();
                 }
 
                 // Lock the dcPowerSession object
@@ -369,7 +372,7 @@ namespace SiPMTesterZMQ.Classes
 
         //--------------------------------------------------------
         //Public functions
-        public void SetVoltage(double v)
+        public void SetVoltage(double v, double vRange = 0, double currentLimit = 0, double currentLimitRange = 0)
         {
             if (dcPowerSession == null || CurrentState == MeasurementState.Running)
             {
@@ -385,14 +388,37 @@ namespace SiPMTesterZMQ.Classes
                 /* Configure the Source mode to SinglePoint. */
                 dcPowerSession.Source.Mode = DCPowerSourceMode.SinglePoint;
                 dcPowerSession.Outputs[ChannelName].Measurement.Sense = DCPowerMeasurementSense.Local;
-                dcPowerSession.Outputs[ChannelName].Source.Voltage.VoltageLevelRange = 200.0;
+
+                if (vRange > 0)
+                {
+                    dcPowerSession.Outputs[ChannelName].Source.Voltage.VoltageLevelRange = vRange;
+                }
+                else
+                {
+                    dcPowerSession.Outputs[ChannelName].Source.Voltage.VoltageLevelRange = 200.0;
+                }
+                
 
                 //Set limits every time
-                dcPowerSession.Outputs[ChannelName].Source.Voltage.CurrentLimitRange = CurrentLimitRange; //0.005; //500uA max
-                dcPowerSession.Outputs[ChannelName].Source.Voltage.CurrentLimit = CurrentLimit; //0.005; //300uA
+                if (currentLimit > 0)
+                {
+                    dcPowerSession.Outputs[ChannelName].Source.Voltage.CurrentLimit = currentLimit;
+                }
+                else
+                {
+                    dcPowerSession.Outputs[ChannelName].Source.Voltage.CurrentLimit = CurrentLimit; //0.005; //300uA
+                }
+
+                if (currentLimitRange > 0)
+                {
+                    dcPowerSession.Outputs[ChannelName].Source.Voltage.CurrentLimitRange = currentLimitRange;
+                }
+                else
+                {
+                    dcPowerSession.Outputs[ChannelName].Source.Voltage.CurrentLimitRange = CurrentLimitRange; //0.005; //500uA max
+                }
+                
                 dcPowerSession.Outputs[ChannelName].Source.Voltage.VoltageLevel = v;
-                dcPowerSession.Outputs[ChannelName].Source.Voltage.CurrentLimit = CurrentLimit;
-                dcPowerSession.Outputs[ChannelName].Source.Voltage.CurrentLimitRange = CurrentLimitRange;
 
                 dcPowerSession.Control.Initiate();
                 Console.WriteLine("SMU voltage set initiated");
