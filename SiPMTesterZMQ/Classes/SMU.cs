@@ -11,6 +11,9 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using SiPMTesterInterface.Enums;
 using NationalInstruments.Restricted;
+using SiPMTesterZMQ.Enums;
+using SiPMTesterZMQ.Models;
+using SiPMTesterInterface.Models;
 
 namespace SiPMTesterZMQ.Classes
 {
@@ -69,6 +72,32 @@ namespace SiPMTesterZMQ.Classes
         public MeasurementState Current { get; set; }
     }
 
+    public class VIMeasurementEventArgs : EventArgs
+    {
+        public VIMeasurementEventArgs() : base()
+        {
+        }
+
+        public VIMeasurementEventArgs(VoltageAndCurrentMeasurementResponseModel resp) : base()
+        {
+            Response = resp;
+        }
+        public VoltageAndCurrentMeasurementResponseModel Response { get; set; }
+    }
+
+    public class VIMeasurementErrorEventArgs : EventArgs
+    {
+        public VIMeasurementErrorEventArgs() : base()
+        {
+        }
+
+        public VIMeasurementErrorEventArgs(string message) : base()
+        {
+            Message = message;
+        }
+        public string Message { get; set; }
+    }
+
     public class SMU
     {
         public string DeviceName { get; set; } = "SMU200";
@@ -84,9 +113,16 @@ namespace SiPMTesterZMQ.Classes
         public event EventHandler<VoltageSetDoneEventArgs> OnVoltageSetDoneEvent;
         public event EventHandler<VoltageSetTimeoutEventArgs> OnVoltageSetTimeoutEvent;
 
+        public event EventHandler<VIMeasurementErrorEventArgs> OnVIMeasurementError;
+        public event EventHandler<VIMeasurementEventArgs> OnVIMeasurementDone;
+
         private MeasurementState _currentState = MeasurementState.NotRunning;
 
         public SynchronizationContext UIContext = null;
+
+        // Define the delegates for the events
+        public delegate void MeasurementCompletedHandler(double measurement);
+        public delegate void ErrorHandler(string message, int statusCode);
 
         public MeasurementState CurrentState
         {
@@ -105,6 +141,8 @@ namespace SiPMTesterZMQ.Classes
         // Create a CancellationTokenSource for cancellation
         CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
 
+        CancellationTokenSource viMeasurementCancellationToken = new CancellationTokenSource();
+
         public int EventCount { get; set; } = 0;
 
         protected virtual void RaiseVoltageSetDoneEvent(VoltageSetDoneEventArgs args)
@@ -117,6 +155,128 @@ namespace SiPMTesterZMQ.Classes
             {
                 OnVoltageSetDoneEvent?.Invoke(this, args);
             }, null);
+        }
+
+        public async Task MeasureVI(VoltageAndCurrentMeasurementResponseModel measurementData)
+        {
+            try
+            {
+                if (measurementData.FirstIterationVoltages == null)
+                {
+                    measurementData.FirstIterationVoltages = new List<double>();
+                }
+                if (measurementData.FirstIterationCurrents == null)
+                {
+                    measurementData.FirstIterationCurrents = new List<double>();
+                }
+                Init();
+                SetVoltage(measurementData.StartModel.FirstIteration.Voltage, measurementData.StartModel.FirstIteration.VoltageRange, measurementData.StartModel.FirstIteration.CurrentLimit, measurementData.StartModel.FirstIteration.CurrentLimitRange);
+                dcPowerSession.Events.SourceCompleteEvent.WaitForEvent(PrecisionTimeSpan.FromSeconds(20.0)); // allow 20 second to set
+                
+                if (measurementData.StartModel.MeasurementType == VoltageAndCurrentMeasurementTypes.DarkCurrent)
+                {
+                    Thread.Sleep(1000);
+                }
+                else if (measurementData.StartModel.MeasurementType == VoltageAndCurrentMeasurementTypes.LeakageCurrent)
+                {
+                    Thread.Sleep(500);
+                }
+                for (int i = 0; i < measurementData.StartModel.FirstIteration.Iterations; i++)
+                {
+                    // Check for cancellation request
+                    viMeasurementCancellationToken.Token.ThrowIfCancellationRequested();
+
+                    var Measurement = dcPowerSession.Measurement.Measure(ChannelName);
+                    var InCompliance = dcPowerSession.Measurement.QueryInCompliance(ChannelName);
+                    measurementData.FirstIterationVoltages.Add(Measurement.VoltageMeasurements[0]);
+                    measurementData.FirstIterationCurrents.Add(Measurement.CurrentMeasurements[0]);
+                    
+                }
+                Stop();
+                Init();
+                if (measurementData.StartModel.MeasurementType == VoltageAndCurrentMeasurementTypes.ForwardResistance)
+                {
+                    Thread.Sleep(1000);
+                }
+
+                SetVoltage(measurementData.StartModel.SecondIteration.Voltage, measurementData.StartModel.SecondIteration.VoltageRange, measurementData.StartModel.SecondIteration.CurrentLimit, measurementData.StartModel.SecondIteration.CurrentLimitRange);
+                dcPowerSession.Events.SourceCompleteEvent.WaitForEvent(PrecisionTimeSpan.FromSeconds(20.0)); // allow 20 second to set
+
+                if (measurementData.StartModel.MeasurementType == VoltageAndCurrentMeasurementTypes.DarkCurrent)
+                {
+                    Thread.Sleep(1000);
+                }
+                else if (measurementData.StartModel.MeasurementType == VoltageAndCurrentMeasurementTypes.LeakageCurrent)
+                {
+                    Thread.Sleep(300);
+                }
+
+                for (int i = 0; i < measurementData.StartModel.SecondIteration.Iterations; i++)
+                {
+                    // Check for cancellation request
+                    viMeasurementCancellationToken.Token.ThrowIfCancellationRequested();
+
+                    var Measurement = dcPowerSession.Measurement.Measure(ChannelName);
+                    var InCompliance = dcPowerSession.Measurement.QueryInCompliance(ChannelName);
+                    measurementData.SecondIterationVoltages.Add(Measurement.VoltageMeasurements[0]);
+                    measurementData.SecondIterationCurrents.Add(Measurement.CurrentMeasurements[0]);
+
+                }
+
+                Stop();
+                if (measurementData.StartModel.MeasurementType == VoltageAndCurrentMeasurementTypes.ForwardResistance)
+                {
+                    Thread.Sleep(3000);
+                }
+                else if (measurementData.StartModel.MeasurementType == VoltageAndCurrentMeasurementTypes.DarkCurrent)
+                {
+                    Init();
+                    SetVoltage(0.0, measurementData.StartModel.SecondIteration.VoltageRange, measurementData.StartModel.SecondIteration.CurrentLimit, measurementData.StartModel.SecondIteration.CurrentLimitRange);
+                    Thread.Sleep(100);
+                    Stop();
+                }
+                OnVIMeasurementDone?.Invoke(this, new VIMeasurementEventArgs(measurementData));
+                // Raise the measurement completed event
+                //MeasurementCompleted?.Invoke(measuredValue);
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine("Measurement operation was cancelled.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($" Message: {ex.Message}");
+                OnVIMeasurementError?.Invoke(this, new VIMeasurementErrorEventArgs(ex.Message));
+                // Raise the error occurred event
+                //ErrorOccurred?.Invoke(ex.Message);
+            }
+            finally
+            {
+                // Disable the output in the finally block to ensure it's executed even if an error or cancellation occurs
+                viMeasurementCancellationToken.Dispose();
+                viMeasurementCancellationToken = null;
+                GC.Collect();
+                viMeasurementCancellationToken = new CancellationTokenSource(); //init for possible next measurement
+                try
+                {
+                    Stop();
+                    Console.WriteLine("Output disabled.");
+                }
+                catch (Exception disableEx)
+                {
+                    Console.WriteLine($"Error disabling the output: {disableEx.Message}");
+                }
+            }
+        }
+
+        // Method to trigger emergency stop
+        public void RequestEmergencyStop()
+        {
+            if (viMeasurementCancellationToken != null && !viMeasurementCancellationToken.Token.IsCancellationRequested)
+                viMeasurementCancellationToken.Cancel();
+            if (cancellationTokenSource != null &&  !cancellationTokenSource.Token.IsCancellationRequested)
+                cancellationTokenSource.Cancel();
+            Stop();
         }
 
         public SMU()
@@ -268,7 +428,7 @@ namespace SiPMTesterZMQ.Classes
             {
                 CurrentState = MeasurementState.NotRunning;
                 VoltageSetIsDone = false;
-                cancellationTokenSource.Cancel();
+                if (cancellationTokenSource != null && !cancellationTokenSource.IsCancellationRequested) cancellationTokenSource.Cancel();
                 dcPowerSession.Control.Abort();
                 dcPowerSession.Utility.Reset();
                 dcPowerSession = null;

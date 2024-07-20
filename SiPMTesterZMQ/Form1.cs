@@ -267,8 +267,54 @@ namespace SiPMTesterZMQ
             smu.OnVoltageSetDoneEvent += OnVoltageSetDoneEvent;
             smu.OnVoltageSetTimeoutEvent += OnVoltageSetTimeoutEvent;
 
+            smu.OnVIMeasurementDone += Smu_OnVIMeasurementDone;
+            smu.OnVIMeasurementError += Smu_OnVIMeasurementError;
+
             globalState.MeasurementState = MeasurementState.NotRunning;
             
+        }
+
+        private void Smu_OnVIMeasurementError(object sender, VIMeasurementErrorEventArgs e)
+        {
+            globalState.VoltageAndCurrentMeasurement.ErrorHappened = true;
+            globalState.VoltageAndCurrentMeasurement.ErrorMessage = e.Message;
+            SendAndSaveVoltageAndCurrentMeasurementData();
+            measurementStatus.Text = $"VI error: {e.Message}";
+            Trace.WriteLine($"VI error: {e.Message}");
+            ChangeGlobalMeasurementState(MeasurementState.Error);
+        }
+
+        private void Smu_OnVIMeasurementDone(object sender, VIMeasurementEventArgs e)
+        {
+            for (int i = 0; i < globalState.VoltageAndCurrentMeasurement.FirstIterationVoltages.Count; i++)
+            {
+                globalState.VoltageAndCurrentMeasurement.FirstIterationVoltageAverage += globalState.VoltageAndCurrentMeasurement.FirstIterationVoltages[i];
+            }
+
+            for (int i = 0; i < globalState.VoltageAndCurrentMeasurement.FirstIterationCurrents.Count; i++)
+            {
+                globalState.VoltageAndCurrentMeasurement.FirstIterationCurrentAverage += globalState.VoltageAndCurrentMeasurement.FirstIterationCurrents[i];
+            }
+
+            for (int i = 0; i < globalState.VoltageAndCurrentMeasurement.SecondIterationVoltages.Count; i++)
+            {
+                globalState.VoltageAndCurrentMeasurement.SecondIterationVoltageAverage += globalState.VoltageAndCurrentMeasurement.SecondIterationVoltages[i];
+            }
+
+            for (int i = 0; i < globalState.VoltageAndCurrentMeasurement.SecondIterationCurrents.Count; i++)
+            {
+                globalState.VoltageAndCurrentMeasurement.SecondIterationCurrentAverage += globalState.VoltageAndCurrentMeasurement.SecondIterationCurrents[i];
+            }
+            globalState.VoltageAndCurrentMeasurement.FirstIterationVoltageAverage = globalState.VoltageAndCurrentMeasurement.FirstIterationVoltageAverage / globalState.VoltageAndCurrentMeasurement.FirstIterationVoltages.Count;
+            globalState.VoltageAndCurrentMeasurement.FirstIterationCurrentAverage = globalState.VoltageAndCurrentMeasurement.FirstIterationCurrentAverage / globalState.VoltageAndCurrentMeasurement.FirstIterationCurrents.Count;
+
+            globalState.VoltageAndCurrentMeasurement.SecondIterationVoltageAverage = globalState.VoltageAndCurrentMeasurement.SecondIterationVoltageAverage / globalState.VoltageAndCurrentMeasurement.SecondIterationVoltages.Count;
+            globalState.VoltageAndCurrentMeasurement.SecondIterationCurrentAverage = globalState.VoltageAndCurrentMeasurement.SecondIterationCurrentAverage / globalState.VoltageAndCurrentMeasurement.SecondIterationCurrents.Count;
+
+            globalState.VoltageAndCurrentMeasurement.EndTimestamp = TimestampHelper.GetCurrentTimestamp();
+            SendAndSaveVoltageAndCurrentMeasurementData();
+            ChangeGlobalMeasurementState(MeasurementState.FinishedVoltageAndCurrent);
+            measurementStatus.Text = "Voltage And Current measurement done";
         }
 
         private void OnVoltageSetTimeoutEvent(object sender, VoltageSetTimeoutEventArgs e)
@@ -413,6 +459,7 @@ namespace SiPMTesterZMQ
                 //Thread.Sleep(1000);
                 responseModel.Successful = true;
                 //VoltageAndCurrentFirstMeasLeft--;
+                //measurementStatus.Text = "Voltage and Current first iteration measurement";
                 measurementStatus.Text = "Voltage and Current first iteration measurement";
                 ChangeGlobalMeasurementState(MeasurementState.Running);
                 globalState.MeasurementType = MeasurementType.VoltageAndCurrentMeasurement;
@@ -549,6 +596,7 @@ namespace SiPMTesterZMQ
                 else
                 {
                     response = "MeasurementStart:" + JsonConvert.SerializeObject(StartVoltageAndCurrentMeasurement(NIVIStart));
+                    Task.Run(() => smu.MeasureVI(globalState.VoltageAndCurrentMeasurement));
                 }
             }
             else if (sender == "StopMeasurement")
@@ -627,11 +675,11 @@ namespace SiPMTesterZMQ
                 AppendLogLine(msg + Environment.NewLine);
                 string responseMessage = ProcessReceivedMessage(msg);
                 respSocket.SendFrame(responseMessage);
-
                 if (startNewMeasurement) //flag for VIMeasurement
                 {
-                    MeasurementFunctions.VoltageAndCurrentMeasurement(globalState.CurrentVoltageAndCurrentStartModel, smu, true);
-                    smu.MeasureSinglePoint(globalState.CurrentVoltageAndCurrentStartModel.FirstIteration.Voltage);
+                    //MeasurementFunctions.VoltageAndCurrentMeasurement(globalState.CurrentVoltageAndCurrentStartModel, smu, true);
+                    //smu.MeasureSinglePoint(globalState.CurrentVoltageAndCurrentStartModel.FirstIteration.Voltage);
+
                     startNewMeasurement = false;
                 }
             }
